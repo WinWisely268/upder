@@ -117,11 +117,12 @@ fn update_rust_analyzer() -> Result<(), Error> {
     let analyzer_url = "https://github.com/rust-analyzer/rust-analyzer/releases/download/nightly/rust-analyzer-linux";
     let res = ureq::get(analyzer_url).timeout_connect(2_000).redirects(10).call();
     let analyzer_file_path = &bin_path.join("rust-analyzer");
-    let mut f = File::create(analyzer_file_path)?;
+    let mut f = File::create(&analyzer_file_path)?;
     let str_body = res.into_string()?;
     let mut body = str_body.as_ref();
     f.write_all(&mut body)?;
-    let out = exec_cmd("chmod", &["+x", "$HOME/.local/bin/rust-analyzer"])?;
+    let fname = [home_path.as_str(), "/.local/bin/", "rust-analyzer"].concat();
+    let out = exec_cmd("chmod", &["+x", fname.as_ref()])?;
     println!("{}", out);
 
     Ok(())
