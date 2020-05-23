@@ -10,3 +10,6 @@ edition = "2018"
 clap = "^2.33.1"
 failure = "^0.1.8"
 ureq = "^1.1.1"
+
+[profile.release]
+lto = true

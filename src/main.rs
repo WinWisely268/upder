@@ -3,12 +3,11 @@ extern crate ureq;
 #[macro_use] extern crate failure;
 
 use clap::{App, Arg};
-use std::fs;
-use std::fs::File;
+use std::fs::{create_dir_all, File};
 use std::io::{prelude::*};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::env;
+use std::env::{var, var_os, split_paths};
 use failure::Error;
 
 fn init() -> Result<(), Error> {
@@ -47,8 +46,8 @@ fn exec_cmd(cmd: &str, args: &[&str]) -> Result<String, Error> {
 // Find executable, return its path
 fn find_exe<P>(bin_name: P) -> Option<PathBuf>
 where P: AsRef<Path> {
-    env::var_os("PATH").and_then(|paths| {
-        env::split_paths(&paths).filter_map(|dir| {
+    var_os("PATH").and_then(|paths| {
+        split_paths(&paths).filter_map(|dir| {
             let full_path = dir.join(&bin_name);
             if full_path.is_file() {
                 Some(full_path)
@@ -69,26 +68,39 @@ fn exe_exists(bin_name: &str) -> Result<PathBuf, Error> {
 
 // Generates systemd timer and install it as user unit.
 fn generate_systemd_timer() -> Result<(), Error>{
-    let config_xdg = env::var("XDG_CONFIG_HOME")?;
+    let config_xdg = var("XDG_CONFIG_HOME")?;
     let systemd_user_path = Path::new(&config_xdg).join("systemd").join("user");
-    fs::create_dir_all(&systemd_user_path)?;
-    let raw_string = "[Unit]\n \
-                      Description=Updates flutter, rust-analyzer, rustup \n \
-                      \n \
-                      [Timer]\n \
-                      OnCalendar=daily\n \
-                          Persistent=true\n \
-                          \n \
-                          [Install] \n \
-                          WantedBy=timers.target\n";
+    create_dir_all(&systemd_user_path)?;
+    let raw_string_service = format!(r#"
+[Unit]
+Description=Updates flutter, rust-analyzer, rustup
 
-    let timer_file = &systemd_user_path.join("upder.timer");
-    let mut file=  File::create(&timer_file)?;
-    file.write_all(raw_string.as_bytes())?;
+[Service]
+Type=oneshot
+ExecStart={}
+StandardOutput=journal"#, get_bin_path()?);
+    let raw_string_timer = r#"
+[Unit]
+Description=Updates flutter, rust-analyzer, rustup
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target"#;
+
+    let service_file_path = &systemd_user_path.join("upder.service");
+    let timer_file_path = &systemd_user_path.join("upder.timer");
+    let mut svc_file = File::create(&service_file_path)?;
+    let mut file=  File::create(&timer_file_path)?;
+    svc_file.write_all(raw_string_service.as_bytes())?;
+    file.write_all(raw_string_timer.as_bytes())?;
     let out = exec_cmd("systemctl", &[
-                       "--user", "enable", "--now", "upder.timer",
+                   "--user", "enable", "--now", "upder.timer",
     ])?;
     println!("{}", out);
+
     Ok(())
 }
 
@@ -110,10 +122,15 @@ fn update_rustup() -> Result<(), Error> {
     Ok(())
 }
 
+fn get_bin_path() -> Result<String, Error> {
+    let home_path = var("HOME")?;
+    Ok([home_path.as_str(), "/.local/bin/", "rust-analyzer"].concat())
+}
+
 fn update_rust_analyzer() -> Result<(), Error> {
-    let home_path = env::var("HOME")?;
+    let home_path = var("HOME")?;
     let bin_path = Path::new(&home_path).join(".local/bin");
-    fs::create_dir_all(&bin_path)?;
+    create_dir_all(&bin_path)?;
     let analyzer_url = "https://github.com/rust-analyzer/rust-analyzer/releases/download/nightly/rust-analyzer-linux";
     let res = ureq::get(analyzer_url).timeout_connect(2_000).redirects(10).call();
     let analyzer_file_path = &bin_path.join("rust-analyzer");
@@ -121,8 +138,7 @@ fn update_rust_analyzer() -> Result<(), Error> {
     let str_body = res.into_string()?;
     let mut body = str_body.as_ref();
     f.write_all(&mut body)?;
-    let fname = [home_path.as_str(), "/.local/bin/", "rust-analyzer"].concat();
-    let out = exec_cmd("chmod", &["+x", fname.as_ref()])?;
+    let out = exec_cmd("chmod", &["+x", get_bin_path()?.as_ref()])?;
     println!("{}", out);
 
     Ok(())
