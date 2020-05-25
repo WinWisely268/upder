@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 anyhow = "^1.0.31"
 structopt = "0.3"
+sys-info = "^0.6.1"
 
 [profile.release]
 lto = true

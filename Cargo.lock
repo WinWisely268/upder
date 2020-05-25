@@ -33,6 +33,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
+name = "cc"
+version = "1.0.54"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bbb73db36c1246e9034e307d0fba23f9a2e251faa47ade70c1bd252220c8311"
+
+[[package]]
 name = "clap"
 version = "2.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -174,6 +180,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sys-info"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb0fb3fecc8cf6ffd2b75b19f0b1e56770fc8d370fed8bb82ce90e29014951c3"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "textwrap"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -206,6 +222,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "structopt",
+ "sys-info",
 ]
 
 [[package]]

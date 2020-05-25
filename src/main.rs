@@ -7,8 +7,46 @@ use std::env::{split_paths, var, var_os};
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-// use tokio::{fs::{create_dir_all, OpenOptions, File}, io::AsyncWriteExt};
 use std::fs::{create_dir_all, File};
+use sys_info::os_type;
+
+#[derive(Clone)]
+struct Url {
+    uri: String,
+}
+
+impl Url {
+    fn new() -> Self {
+        Url{
+            uri: "".to_string(),
+        }
+    }
+
+    fn get_url(mut self) -> Result<Self, Error> {
+        let uri = self.build_url()?;
+        self.uri = uri;
+        Ok(self)
+
+    }
+
+    fn build_url(&self) -> Result<String, Error> {
+        let osname = os_type()?;
+        let platform = match &*osname {
+            "Linux" => "linux",
+            "Darwin" => "mac",
+            _ => "linux",
+        };
+
+        let bin_name = "rust-analyzer";
+        Ok(format!(
+            "https://github.com/{}/{}/releases/download/nightly/{}-{}",
+            bin_name,
+            bin_name,
+            bin_name,
+            platform,
+            ))
+    }
+}
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "upder")]
@@ -35,65 +73,10 @@ fn exec_cmd(cmd: &str, args: &[&str]) -> Result<String, Error> {
 }
 
 fn fetch_github(uri: &str, dest: &str) -> Result<String, Error> {
-    let out = exec_cmd("aria2c", &[uri, "-o", dest])?;
+    let out = exec_cmd("aria2c", &[uri, "-o", dest, "--allow-overwrite=true"])?;
     println!("{}",out);
     exec_cmd("chmod", &["+x", get_bin_path()?.as_ref()])
 }
-
-// build headers for each request sent
-// fn build_headers() -> header::HeaderMap {
-//     let mut headers = header::HeaderMap::new();
-//     headers.insert(
-//         header::USER_AGENT,
-//         "Mozilla/5.0 (X11; OpenSUSE; Linux x86_64; rv:75.0) Gecko/20100101 Firefox/75.0"
-//         .parse()
-//         .expect("Invalid UA"),
-//         );
-//     headers.insert(
-//         "Accept",
-//         "application/octet-stream".parse().expect("Invalid accept type"),
-//         );
-//     headers
-// }
-
-
-// download uri with indicatif progress bar
-// async fn fetch_github(uri: &str, dest: &Path) -> Result<String, Error> {
-//     let client = Client::new();
-//     let total_size = {
-//         println!("Getting HEAD response from {}", uri);
-//         let resp = client.head(uri).
-//             headers(build_headers()).send().await?;
-//         if resp.status().is_success() {
-//             Ok(resp.headers().get(header::CONTENT_LENGTH).and_then(|l| l.to_str().ok())
-//                .and_then(|l| l.parse().ok()).unwrap_or(0))
-//         } else {
-//             Err(anyhow!("Failed to download URL: {}, Err: {:?}", uri, resp.status()))
-//         }
-//     };
-//     let tot = total_size?;
-//     let pb = ProgressBar::new(tot);
-//     pb.set_style(ProgressStyle::default_bar().template(
-//             "{spinner: .yellow} [{elapsed_precise}] [{bar:60.green/black}] {bytes/total_bytes} ({eta})",
-//             ).progress_chars("#>-"));
-
-//     let mut req = client.get(uri).headers(build_headers());
-//     if dest.exists() {
-//         let size = dest.metadata()?.len().saturating_sub(1);
-//         req = req.header(header::RANGE, format!("bytes={}-", size));
-//         pb.inc(size);
-//     }
-
-//     let mut resp = req.send().await?;
-//     let mut dest_file = OpenOptions::new()
-//         .create(true).append(false).open(dest).await?;
-//     while let Some(chunk) = resp.chunk().await? {
-//         dest_file.write_all(&chunk).await?;
-//         pb.inc(chunk.len() as u64);
-//     }
-
-//     Ok(format!("Successfully downloaded: {} to {:?}", uri, dest))
-// }
 
 // Find executable, return its path
 fn find_exe<P>(bin_name: P) -> Option<PathBuf>
@@ -184,12 +167,11 @@ fn get_bin_path() -> Result<String, Error> {
 }
 
 fn update_rust_analyzer() -> Result<(), Error> {
-    let home_path = var("HOME")?;
-    let bin_path = Path::new(&home_path).join(".local/bin");
     let bin_path_string = get_bin_path()?;
-    create_dir_all(&bin_path)?;
-    let analyzer_url = "https://github.com/rust-analyzer/rust-analyzer/releases/download/nightly/rust-analyzer-linux";
-    let out = fetch_github(analyzer_url, &bin_path_string)?;
+    let bin_path = Path::new(&bin_path_string);
+    create_dir_all(bin_path)?;
+    let analyzer_uri = Url::new().get_url()?;
+    let out = fetch_github(&analyzer_uri.uri, &bin_path_string)?;
     println!("{}", out);
 
     Ok(())
