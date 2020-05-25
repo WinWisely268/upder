@@ -1,35 +1,21 @@
-extern crate attohttpc;
-extern crate clap;
 #[macro_use]
 extern crate anyhow;
 
 use anyhow::Error;
-use byteorder::{LittleEndian, ReadBytesExt};
-use clap::{App, Arg};
-use indicatif::{ProgressBar, ProgressStyle};
+use structopt::StructOpt;
 use std::env::{split_paths, var, var_os};
-use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+// use tokio::{fs::{create_dir_all, OpenOptions, File}, io::AsyncWriteExt};
+use std::fs::{create_dir_all, File};
 
-fn init() -> Result<(), Error> {
-    let matches = App::new("upder")
-        .version("0.0.1")
-        .author("Alexander Adhyatma <alex@asiatech.dev>")
-        .about("Updates flutter, rust-analyzer, rustup, via systemd-timer (user)")
-        .args(&[Arg::with_name("gen_systemd")
-            .help("Generate systemd timer file")
-            .long("gen-systemd")
-            .short("g")
-            .takes_value(false)
-            .required(false)])
-        .get_matches();
-
-    if matches.is_present("gen_systemd") {
-        return generate_systemd_timer();
-    }
-    return Ok(());
+#[derive(StructOpt, Debug)]
+#[structopt(name = "upder")]
+struct CmdOpt {
+    // option to generate systemd timer unit
+    #[structopt(short = "g", long = "gen", parse(try_from_str))]
+    gen: bool,
 }
 
 // Wrapper for shell commnands
@@ -48,40 +34,71 @@ fn exec_cmd(cmd: &str, args: &[&str]) -> Result<String, Error> {
     }
 }
 
-// indicatif progress bar
-fn fetch_download(uri: &str, dest: &Path) -> Result<String, Error> {
-    let resp = attohttpc::get(uri).send()?;
-    let total_size: Result<&attohttpc::header::HeaderValue, Error> = {
-        if resp.is_success() {
-            Ok(resp
-                .headers()
-                .get(attohttpc::header::CONTENT_LENGTH)
-                .unwrap())
-        } else {
-            Err(format_err!(
-                "error getting content length of uri: {} => {}",
-                uri,
-                resp.status()
-            ))
-        }
-    };
-    let mut tot = total_size?.as_bytes();
-    let pb = ProgressBar::new(tot.read_u64::<LittleEndian>().unwrap());
-    pb.set_style(ProgressStyle::default_bar().template(
-        "{spinner: .green} [{elapsed_precise}] [{bar:40.yellow/cyan}] {bytes/total_bytes} ({eta})",
-    ).progress_chars("#>-"));
-
-    let dest_file = File::create(dest)?;
-
-    resp.write_to(dest_file)?;
-
-    Ok(format!("Successfully downloaded: {} to {:?}", uri, dest))
+fn fetch_github(uri: &str, dest: &str) -> Result<String, Error> {
+    let out = exec_cmd("aria2c", &[uri, "-o", dest])?;
+    println!("{}",out);
+    exec_cmd("chmod", &["+x", get_bin_path()?.as_ref()])
 }
+
+// build headers for each request sent
+// fn build_headers() -> header::HeaderMap {
+//     let mut headers = header::HeaderMap::new();
+//     headers.insert(
+//         header::USER_AGENT,
+//         "Mozilla/5.0 (X11; OpenSUSE; Linux x86_64; rv:75.0) Gecko/20100101 Firefox/75.0"
+//         .parse()
+//         .expect("Invalid UA"),
+//         );
+//     headers.insert(
+//         "Accept",
+//         "application/octet-stream".parse().expect("Invalid accept type"),
+//         );
+//     headers
+// }
+
+
+// download uri with indicatif progress bar
+// async fn fetch_github(uri: &str, dest: &Path) -> Result<String, Error> {
+//     let client = Client::new();
+//     let total_size = {
+//         println!("Getting HEAD response from {}", uri);
+//         let resp = client.head(uri).
+//             headers(build_headers()).send().await?;
+//         if resp.status().is_success() {
+//             Ok(resp.headers().get(header::CONTENT_LENGTH).and_then(|l| l.to_str().ok())
+//                .and_then(|l| l.parse().ok()).unwrap_or(0))
+//         } else {
+//             Err(anyhow!("Failed to download URL: {}, Err: {:?}", uri, resp.status()))
+//         }
+//     };
+//     let tot = total_size?;
+//     let pb = ProgressBar::new(tot);
+//     pb.set_style(ProgressStyle::default_bar().template(
+//             "{spinner: .yellow} [{elapsed_precise}] [{bar:60.green/black}] {bytes/total_bytes} ({eta})",
+//             ).progress_chars("#>-"));
+
+//     let mut req = client.get(uri).headers(build_headers());
+//     if dest.exists() {
+//         let size = dest.metadata()?.len().saturating_sub(1);
+//         req = req.header(header::RANGE, format!("bytes={}-", size));
+//         pb.inc(size);
+//     }
+
+//     let mut resp = req.send().await?;
+//     let mut dest_file = OpenOptions::new()
+//         .create(true).append(false).open(dest).await?;
+//     while let Some(chunk) = resp.chunk().await? {
+//         dest_file.write_all(&chunk).await?;
+//         pb.inc(chunk.len() as u64);
+//     }
+
+//     Ok(format!("Successfully downloaded: {} to {:?}", uri, dest))
+// }
 
 // Find executable, return its path
 fn find_exe<P>(bin_name: P) -> Option<PathBuf>
 where
-    P: AsRef<Path>,
+P: AsRef<Path>,
 {
     var_os("PATH").and_then(|paths| {
         split_paths(&paths)
@@ -93,7 +110,7 @@ where
                     None
                 }
             })
-            .next()
+        .next()
     })
 }
 
@@ -111,25 +128,25 @@ fn generate_systemd_timer() -> Result<(), Error> {
     create_dir_all(&systemd_user_path)?;
     let raw_string_service = format!(
         r#"
-[Unit]
-Description=Updates flutter, rust-analyzer, rustup
+        [Unit]
+        Description=Updates flutter, rust-analyzer, rustup
 
-[Service]
-Type=oneshot
-ExecStart={}
-StandardOutput=journal"#,
+        [Service]
+        Type=oneshot
+        ExecStart={}
+        StandardOutput=journal"#,
         get_bin_path()?
-    );
+        );
     let raw_string_timer = r#"
-[Unit]
-Description=Updates flutter, rust-analyzer, rustup
+        [Unit]
+        Description=Updates flutter, rust-analyzer, rustup
 
-[Timer]
-OnCalendar=daily
-Persistent=true
+        [Timer]
+        OnCalendar=daily
+        Persistent=true
 
-[Install]
-WantedBy=timers.target"#;
+        [Install]
+        WantedBy=timers.target"#;
 
     let service_file_path = &systemd_user_path.join("upder.service");
     let timer_file_path = &systemd_user_path.join("upder.timer");
@@ -171,17 +188,18 @@ fn update_rust_analyzer() -> Result<(), Error> {
     let bin_path = Path::new(&home_path).join(".local/bin");
     let bin_path_string = get_bin_path()?;
     create_dir_all(&bin_path)?;
-    let analyzer_url = "https://github.com/rust-analyzer/rust-analyzer/releases/download/nightly/rust-analyzer-mac";
-    let analyzer_file_path = Path::new(&bin_path_string);
-    fetch_download(analyzer_url, analyzer_file_path)?;
-    //    let out = exec_cmd("chmod", &["+x", get_bin_path()?.as_ref()])?;
-    //    println!("{}", out);
+    let analyzer_url = "https://github.com/rust-analyzer/rust-analyzer/releases/download/nightly/rust-analyzer-linux";
+    let out = fetch_github(analyzer_url, &bin_path_string)?;
+    println!("{}", out);
 
     Ok(())
 }
 
 fn main() -> Result<(), Error> {
-    init()?;
+    let opt = CmdOpt::from_args();
+    if opt.gen {
+        generate_systemd_timer()?
+    }
     update_rustup()?;
     update_flutter()?;
     update_rust_analyzer()?;
