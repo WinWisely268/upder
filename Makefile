@@ -5,7 +5,7 @@ PREFIX := $(HOME)/.local
 
 install: build
 	strip $(PWD)/target/release/$(BINNAME)
-	install -Dm755 $(PWD)/target/release/$(BINNAME)  $(PREFIX)/bin/$(BINNAME)
+	install -m755 $(PWD)/target/release/$(BINNAME)  $(PREFIX)/bin/$(BINNAME)
 
 build:
 	cargo build --release
