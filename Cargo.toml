@@ -9,6 +9,9 @@ edition = "2018"
 [dependencies]
 anyhow = "^1.0.31"
 structopt = "0.3"
+isahc = { version = "^0.9" }
+futures = "^0.3"
+indicatif = "^0.14"
 sys-info = "^0.6.1"
 
 [profile.release]
